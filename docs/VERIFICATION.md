@@ -11,6 +11,8 @@ Date: 2026-10-29. Local Windows run with Node 22.23.3, npm 10.9.9, Phaser 4.2.1,
 | `npx playwright install chromium` | Passed |
 | `npm run test:e2e` | **2 passed, 0 failed**, no retries (43.7 seconds including test-service startup) |
 | `git diff --check` | Passed |
+| `npm start` + `npm run preview` | Passed; two-context production-browser smoke, synchronized independent movement, no browser errors; test observer absent |
+| `npm run dev` | Passed; shared watcher reports 0 errors, server health returns `ok:true`, client HTTP 200 on `5173` |
 
 ## Browser proof
 
@@ -34,4 +36,17 @@ Real TCP Socket.IO integration: secure seat assignment and capacity, duplicate s
 - This is a **local online networking proof**. No deployment, physical-device test, public-internet test, latency/fairness assessment, AI or subsequent milestone is claimed.
 - M1 disconnect closes a room. Reconnection, forfeit grace, guard regeneration/break, other attacks, timer, best-of-three and rematch are intentionally deferred to M2.
 
-Final code review and startup smoke evidence will be appended after execution.
+## Final review and startup smoke
+
+One independent read-only review of commit `5b6481c` found **no Critical or Important M0/M1 issues** and approved the slice with two minor comments. The reviewer inspected source/tests and the verification record; they did not independently rerun the suites. The implementer's executed test results are recorded above.
+
+Deferred minor issues:
+
+1. An ended room whose frozen tick is divisible by three can rebroadcast its identical final state at 60 Hz until the bounded 30-second cleanup. This does not advance combat or change results, but wastes some network/render work.
+2. Leaving/disconnecting clears membership but keeps the previous HUD numbers, match details and placeholder poses in the menu until the next room snapshot. The server's new room state is fresh; this is a presentation cleanup gap.
+
+Scope decisions retained after review: M2 reconnect/forfeit, guard regeneration/break, timer/best-of-three/rematch remain deferred; M3/M4 remain untouched. Local context verification does not establish physical-device or public-internet performance. Basic prototype validation does not establish production-grade anti-cheat or denial-of-service resistance.
+
+After production build, `npm start` and `npm run preview` launched the built Node server and client. A separate Playwright smoke invocation created two independent contexts, joined one room, verified the same match ID and independent synchronized movement, checked the health endpoint, confirmed `window.__SC_TEST__` was absent, and observed zero browser page/console errors. See [production arena screenshot](evidence/production-arena.png).
+
+Those smoke services were stopped, then `npm run dev` was launched. The shared compiler reported zero errors, the Node server listened on `127.0.0.1:3001`, and Vite served `127.0.0.1:5173`. Both HTTP endpoints were checked successfully. Default services are local loopback only. No remote push, deployment, machine configuration change or later milestone was performed. Local commits were created unsigned using a per-command option because the machine's configured SSH signing prompt blocked; the global signing preference was preserved.
