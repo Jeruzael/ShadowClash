@@ -1,0 +1,5 @@
+{
+  "name": "@shadow-clash/server", "version": "0.1.0", "private": true, "type": "module",
+  "scripts": { "build": "tsc -p tsconfig.json" },
+  "dependencies": { "@shadow-clash/shared": "0.1.0", "socket.io": "4.8.4" }
+}

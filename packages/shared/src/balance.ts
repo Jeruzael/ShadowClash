@@ -1,0 +1,23 @@
+// Versioned, tick-based M0/M1 rules. Rendering dimensions never determine damage.
+export const BALANCE = {
+  version: 1,
+  tickRate: 60,
+  snapshotEveryTicks: 3,
+  arenaWidth: 1280,
+  arenaHeight: 720,
+  floorY: 600,
+  minX: 40,
+  maxX: 1240,
+  fighterWidth: 48,
+  fighterHeight: 84,
+  movePerTick: 5,
+  gravityPerTick: 0.5,
+  jumpVelocity: -11,
+  maxHp: 100,
+  maxGuard: 100,
+  spawnX: [400, 880] as const,
+  countdownTicks: 90,
+  resultTicks: 150,
+  hitstunTicks: 12,
+  punch: { startupTicks: 6, activeTicks: 4, recoveryTicks: 14, reach: 64, height: 28, damage: 5, guardDamage: 18 },
+} as const;
