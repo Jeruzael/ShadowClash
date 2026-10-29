@@ -4,6 +4,26 @@ import type {} from '../../apps/client/src/testObserver.js';
 
 const hp = (page: Page, seat: number) => page.locator(`#hp-${seat}`);
 const x = (page: Page, seat: number) => page.locator(`#fighter-${seat}`).getAttribute('data-x').then(Number);
+type AckHarness = NonNullable<Window['__SC_TEST__']> & { releaseAck?: () => void };
+
+async function holdRealReplyAcrossReconnect(page: Page, event: 'room:create' | 'room:leave') {
+  await page.evaluate(event => {
+    const observer = window.__SC_TEST__ as AckHarness;
+    const socket = observer.socket;
+    const emit = socket.emit;
+    socket.emit = function (name: string, ...args: unknown[]) {
+      if (name === event) {
+        socket.emit = emit;
+        const callback = args.pop();
+        args.push((...reply: unknown[]) => {
+          observer.releaseAck = () => { if (typeof callback === 'function') callback(...reply); delete observer.releaseAck; };
+          socket.disconnect(); socket.connect();
+        });
+      }
+      return emit.call(socket, name, ...args);
+    };
+  }, event);
+}
 async function tap(page: Page, key: string) { await page.keyboard.down(key); await page.waitForTimeout(45); await page.keyboard.up(key); }
 async function punch(page: Page) { await tap(page, 'j'); await page.waitForTimeout(420); }
 
@@ -258,4 +278,24 @@ test('copying an invite without the secure clipboard API selects a manual-copy f
   const selected = await page.locator('#invite-link').evaluate((node: HTMLInputElement) => node.selectionStart === 0 && node.selectionEnd === node.value.length);
   expect(selected).toBe(true);
   expect(errors).toEqual([]);
+});
+
+test('late real create and leave replies cannot restore or clear a newer room', async ({ page }) => {
+  await page.goto('/');
+  await expect(page.locator('#connection')).toHaveText('Connected to server');
+  for (const event of ['room:create', 'room:leave'] as const) {
+    await holdRealReplyAcrossReconnect(page, event);
+    await page.getByRole('button', { name: event === 'room:create' ? 'Fight a Friend' : 'Leave room', exact: true }).click();
+    await expect.poll(() => page.evaluate(() => typeof (window.__SC_TEST__ as AckHarness).releaseAck)).toBe('function');
+    await expect(page.locator('#connection')).toHaveText('Connected to server');
+    await page.getByRole('button', { name: 'Fight a Friend', exact: true }).click();
+    await expect(page.locator('#connection')).toHaveText('Waiting for opponent');
+    const currentCode = (await page.locator('#room-code').textContent())!;
+    const currentMatch = (await page.locator('#match-id').textContent())!;
+    await page.evaluate(() => (window.__SC_TEST__ as AckHarness).releaseAck!());
+    await expect(page.locator('#room-code')).toHaveText(currentCode);
+    await expect(page.locator('#match-id')).toHaveText(currentMatch);
+    await expect(page.locator('#connection')).toHaveText('Waiting for opponent');
+    expect(await page.request.get('http://127.0.0.1:3002/health').then(r => r.json())).toMatchObject({ rooms: 1, simulationRunning: true });
+  }
 });

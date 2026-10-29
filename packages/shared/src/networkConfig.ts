@@ -20,12 +20,13 @@ export function resolveNetworkConfig(env: Record<string, string | undefined>) {
   const allowedOrigins = env.ALLOWED_ORIGIN?.trim() ? env.ALLOWED_ORIGIN.split(',').map(s => s.trim()).filter(Boolean)
     : [`http://127.0.0.1:${clientPort}`, `http://localhost:${clientPort}`];
   if (clientHost !== '127.0.0.1') allowedOrigins.push(`http://${clientHost}:${clientPort}`);
-  for (const origin of allowedOrigins) {
+  const normalizedOrigins = allowedOrigins.map(origin => {
     let url: URL;
     try { url = new URL(origin); } catch { throw new Error('ALLOWED_ORIGIN must contain exact HTTP(S) origins.'); }
-    if (!['http:', 'https:'].includes(url.protocol) || url.origin !== origin || url.username || url.password || origin.includes('*')) {
+    if (!/^https?:\/\/[^/?#]+$/i.test(origin) || url.username || url.password || origin.includes('*')) {
       throw new Error('ALLOWED_ORIGIN must contain exact HTTP(S) origins without paths or wildcards.');
     }
-  }
-  return { clientHost, serverHost: '127.0.0.1', clientPort, serverPort, allowedOrigins: [...new Set(allowedOrigins)] };
+    return url.origin;
+  });
+  return { clientHost, serverHost: '127.0.0.1', clientPort, serverPort, allowedOrigins: [...new Set(normalizedOrigins)] };
 }

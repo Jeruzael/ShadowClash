@@ -33,4 +33,9 @@ describe('local and trusted LAN configuration', () => {
       expect(() => resolveNetworkConfig({ ALLOWED_ORIGIN: origin })).toThrow(/ALLOWED_ORIGIN/);
     }
   });
+  it('canonicalizes HTTP port 80 for loopback, LAN and explicit origins', () => {
+    expect(resolveNetworkConfig({ CLIENT_PORT: '80' }).allowedOrigins).toEqual(['http://127.0.0.1', 'http://localhost']);
+    expect(resolveNetworkConfig({ CLIENT_PORT: '80', LAN_HOST: '192.168.1.25' }).allowedOrigins).toEqual(['http://127.0.0.1', 'http://localhost', 'http://192.168.1.25']);
+    expect(resolveNetworkConfig({ ALLOWED_ORIGIN: 'http://localhost:80,http://localhost' }).allowedOrigins).toEqual(['http://localhost']);
+  });
 });
