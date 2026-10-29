@@ -93,3 +93,13 @@ M0/M1 only: no full moveset, crouch, dash, charged moves, combos, guard regenera
 The automated online proof is local, using separate browser contexts and a real authoritative server. Separate physical devices and public cross-internet play have not been verified. Loopback defaults keep access local; LAN hosting requires explicit private-IP configuration. Network latency produces visible input delay; there is no prediction or rollback. This prototype has basic authoritative validation, not production-grade anti-cheat. Server restarts lose live rooms. Future hosting needs a long-running Node/WebSocket process and HTTPS/WSS, in addition to client files; nothing has been deployed.
 
 The two M1 cleanup issues recorded in the historical verification report are addressed by M1.1. See [M1.1 verification](docs/M1.1-VERIFICATION.md) for executed results and remaining limits.
+
+## White Ninja idle asset preview (M4 preview only)
+
+With `npm run dev` running, open **http://127.0.0.1:5173/asset-preview.html**. The same route is included in the local production build served by `npm run preview`. It is a standalone visual test with no Socket.IO connection or match; the normal game page and its live PvP placeholders are unchanged.
+
+Use Display to compare **Physics box**, **Idle sprite**, or **Sprite + box overlay**. Facing flips the supplied right-facing art without moving its foot anchor. Dark, checkerboard and light backgrounds help inspect transparency. The frame counter shows the real four-frame loop at 3 FPS.
+
+The preview reads existing constants for a fixed `(400,600)` spawn/floor and `48×84` box. Origin is `(0.5,496/512)` and visual scale is `84/470`, giving an approximately 84px visible silhouette at the existing logical game size. The scene has no physics engine and changes no authoritative positions, health, damage, hitboxes or protocol. The fixed 1280×720 camera uses FIT letterboxing at desktop sizes.
+
+This supplied pack is a subtle **image-deformation prototype**, not independently generated animation key poses. No punch/walk/Black Ninja animations or stage integration are added. Source details and unchanged asset hash are in [docs/ASSETS.md](docs/ASSETS.md); executed checks, before/after screenshots and visual limitations are in [docs/WHITE-IDLE-PREVIEW-VERIFICATION.md](docs/WHITE-IDLE-PREVIEW-VERIFICATION.md). Nothing is deployed.

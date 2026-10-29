@@ -1,0 +1,20 @@
+<!doctype html>
+<html lang="en">
+<head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><title>White Ninja idle · Shadow Clash asset preview</title><link rel="icon" href="data:,"></head>
+<body>
+  <main>
+    <header><div><p class="eyebrow">SHADOW CLASH · M4 PREVIEW ONLY</p><h1>White Ninja idle</h1></div><a href="./">Play game</a></header>
+    <p class="intro">Standalone visual reference. Four supplied deformation frames at 3 FPS; live PvP continues to use its existing placeholders.</p>
+    <section class="controls" aria-label="Asset inspection controls">
+      <label>Display <select id="render-mode" disabled><option value="sprite">Idle sprite</option><option value="box">Physics box</option><option value="overlay">Sprite + box overlay</option></select></label>
+      <label>Facing <select id="facing" disabled><option value="right">Right</option><option value="left">Left</option></select></label>
+      <label>Background <select id="background" disabled><option value="dark">Dark</option><option value="checker">Checkerboard</option><option value="light">Light</option></select></label>
+      <p id="asset-status" role="status">Loading idle sheet…</p>
+    </section>
+    <div id="preview-stage" role="img" aria-label="White Ninja idle sprite with fixed floor and physics reference"></div>
+    <section class="readout" aria-label="Rendering measurements"><p>Frame <b id="frame-index">—</b> / 3 · 3 FPS</p><p id="foot-position">Foot anchor —</p><p>Collision reference 48 × 84 · Character ≈84 logical px tall</p><p>Origin (0.5, 496/512) · Fixed 1280 × 720 arena</p></section>
+    <p class="note">This is an image-deformation prototype derived from the supplied original reference. It is not a set of independently generated key poses.</p>
+  </main>
+  <script type="module" src="/src/preview/main.ts"></script>
+</body>
+</html>

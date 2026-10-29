@@ -8,5 +8,9 @@ export default defineConfig(({ mode }) => {
   const config = resolveNetworkConfig(env);
   const proxy = { '/socket.io': { target: `http://${config.serverHost}:${config.serverPort}`, ws: true } };
   const localServer = { host: config.clientHost, port: config.clientPort, strictPort: true, proxy };
-  return { envDir: root, server: localServer, preview: localServer };
+  return { envDir: root, server: localServer, preview: localServer,
+    build: { rolldownOptions: { input: {
+      game: fileURLToPath(new URL('./index.html', import.meta.url)),
+      idlePreview: fileURLToPath(new URL('./asset-preview.html', import.meta.url)),
+    } } } };
 });
