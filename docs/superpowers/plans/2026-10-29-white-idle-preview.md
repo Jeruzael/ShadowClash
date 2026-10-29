@@ -14,13 +14,13 @@
 
 ## Task 1 — Preview and asset import
 
-- [ ] Add new browser acceptance tests first and observe the missing preview fail.
-- [ ] Copy only the exact idle PNG into `apps/client/public/assets/white-ninja/` and record source/provenance in `docs/ASSETS.md`.
-- [ ] Implement standalone HTML, small preview UI/styles, scene and read-only test-mode diagnostics. Configure Vite's two HTML build inputs. Do not edit the game entry point or FightScene.
+- [x] Add new browser acceptance tests first and observe the missing preview fail.
+- [x] Copy only the exact idle PNG into `apps/client/public/assets/white-ninja/` and record source/provenance in `docs/ASSETS.md`.
+- [x] Implement standalone HTML, small preview UI/styles, scene and read-only test-mode diagnostics. Configure Vite's two HTML build inputs. Do not edit the game entry point or FightScene.
 
 ## Task 2 — Acceptance and delivery
 
-- [ ] Verify all frames/order/repeat/3 FPS, constant foot/origin/scale/reference box across animation and flip, alpha-channel bounds, and no preview socket connection or live-PvP asset load.
-- [ ] Test 1920×1080, 1366×768 and 1024×768; capture box/sprite/flip/background screenshots. Inspect visual issues honestly.
-- [ ] Execute `npm run typecheck`, `npm test`, `npm run build`, `npm run test:e2e`. Preserve all existing test files and server/shared/game sources unchanged.
-- [ ] Smoke-test the built standalone page; independent read-only review; document actual results and remaining issues; commit and push the task branch. No deployment.
+- [x] Verify all frames/order/repeat/3 FPS, constant foot/origin/scale/reference box across animation and flip, alpha-channel bounds, and no preview socket connection or live-PvP asset load.
+- [x] Test 1920×1080, 1366×768 and 1024×768; capture box/sprite/flip/background screenshots. Inspect visual issues honestly.
+- [x] Execute `npm run typecheck`, `npm test`, `npm run build`, `npm run test:e2e`. Preserve all existing test files and server/shared/game sources unchanged.
+- [x] Smoke-test the built standalone page; independent read-only review; document actual results and remaining issues; commit and push the task branch. No deployment.

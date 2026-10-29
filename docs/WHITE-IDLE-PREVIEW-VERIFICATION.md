@@ -50,4 +50,6 @@ Mayon-stage rendering, punch/walk/Black Ninja animations, asset generation, live
 
 Run `npm run dev`, then open **http://127.0.0.1:5173/asset-preview.html**. For built output, run `npm run build`, then `npm run preview`; the same path works. No game server is required for the standalone preview. The Play game link returns to the existing PvP page, which requires its normal Node server.
 
-Independent final code review is recorded before delivery.
+## Independent review
+
+One independent read-only review of `1465e01..83b6e83` approved the change with **no Critical, Important or Minor defects**. It checked all changed code/build configuration/tests, source-asset hash, documentation and selected committed screenshots. No corrective changes were requested. The reviewer did not independently rerun tests/services; the executed results above are implementation evidence. External source-pack authenticity/licensing beyond recorded provenance, final animation quality, unsupported devices/browsers, public internet and excluded gameplay/art milestones were not established by this review.
