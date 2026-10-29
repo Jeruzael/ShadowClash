@@ -7,6 +7,27 @@ const x = (page: Page, seat: number) => page.locator(`#fighter-${seat}`).getAttr
 async function tap(page: Page, key: string) { await page.keyboard.down(key); await page.waitForTimeout(45); await page.keyboard.up(key); }
 async function punch(page: Page) { await tap(page, 'j'); await page.waitForTimeout(420); }
 
+async function expectLobby(page: Page) {
+  for (const seat of [0, 1]) {
+    await expect(hp(page, seat)).toHaveText('100');
+    await expect(page.locator(`#guard-${seat}`)).toHaveText('100');
+    await expect(page.locator(`#health-bar-${seat}`)).toHaveJSProperty('value', 100);
+    await expect(page.locator(`#guard-bar-${seat}`)).toHaveJSProperty('value', 100);
+    await expect(page.locator(`#fighter-${seat}`)).toHaveAttribute('data-x', seat === 0 ? '400' : '880');
+    await expect(page.locator(`#fighter-${seat}`)).toHaveAttribute('data-y', '600');
+    await expect(page.locator(`#fighter-${seat}`)).toHaveAttribute('data-mode', 'idle');
+  }
+  await expect(page.locator('#match-id')).toHaveText('—');
+  await expect(page.locator('#tick')).toHaveText('0');
+  await expect(page.locator('#round-number')).toHaveText('1');
+  await expect(page.locator('#wins')).toHaveText('0 – 0');
+  await expect(page.locator('#round-result')).toHaveText('Server decides all movement, hits and results.');
+  await expect(page.locator('#room-code')).toHaveText('—');
+  await expect(page.locator('#invite')).toBeHidden();
+  await expect(page.getByRole('button', { name: 'Leave room', exact: true })).toBeDisabled();
+  expect(await page.evaluate(() => sessionStorage.getItem('shadow-clash-seat'))).toBeNull();
+}
+
 test('two independent contexts play one authoritative round, reject a third and survive disconnect', async ({ browser }, testInfo) => {
   const options = { baseURL: testInfo.project.use.baseURL, viewport: { width: 1440, height: 1100 } };
   const a = await browser.newContext(options), b = await browser.newContext(options), c = await browser.newContext(options);
@@ -109,7 +130,8 @@ test('two independent contexts play one authoritative round, reject a third and 
     await testInfo.attach('arena', { path: testInfo.outputPath('arena.png'), contentType: 'image/png' });
 
     await b.close();
-    await expect(p1.locator('#round-status')).toContainText('Opponent left');
+    await expect(p1.locator('#round-status')).toContainText('Opponent disconnected');
+    await expectLobby(p1);
     const response = await p1.request.get('http://127.0.0.1:3002/health');
     expect(response.ok()).toBe(true);
     expect(errors).toEqual([]);
@@ -131,6 +153,11 @@ test('Black can block and attack; focus loss releases controls; leaving permits 
     await expect(p1.locator('#your-seat')).toHaveText('P1 · White Ninja');
     const code = (await p1.locator('#room-code').textContent())!;
     await p2.goto(`/?room=${code}`);
+    // The arena's border/overflow clips a device-pixel row differently after
+    // focus scrolling. Compare the actual canvas content without that clipping.
+    const canvasCapture = { style: '#arena { overflow: visible !important; }' };
+    const lobbyCanvas = await p2.locator('canvas').screenshot(canvasCapture);
+    await testInfo.attach('initial lobby canvas', { body: lobbyCanvas, contentType: 'image/png' });
     await p2.getByRole('button', { name: 'Join room', exact: true }).click();
     await expect(p2.locator('#round-status')).toHaveText('Fight!');
     await p2.keyboard.down('a');
@@ -160,9 +187,75 @@ test('Black can block and attack; focus loss releases controls; leaving permits 
     await p1.keyboard.up('a');
 
     await p2.getByRole('button', { name: 'Leave room', exact: true }).click();
-    await expect(p1.locator('#round-status')).toContainText('Opponent left');
+    await expectLobby(p2);
+    await testInfo.attach('returned lobby canvas', { body: await p2.locator('canvas').screenshot(canvasCapture), contentType: 'image/png' });
+    await expect.poll(async () => (await p2.locator('canvas').screenshot(canvasCapture)).equals(lobbyCanvas)).toBe(true);
+    await expect(p1.locator('#round-status')).toContainText('Opponent disconnected');
+    await expectLobby(p1);
     await p2.getByRole('button', { name: 'Fight a Friend', exact: true }).click();
     await expect(p2.locator('#your-seat')).toHaveText('P1 · White Ninja');
     await expect(p2.locator('#room-code')).not.toHaveText(code);
   } finally { await Promise.allSettled([a.close(), b.close()]); }
+});
+
+test('refresh and transport loss close old rooms, reset both clients and expose distinct connection states', async ({ browser }, testInfo) => {
+  const options = { baseURL: testInfo.project.use.baseURL };
+  const a = await browser.newContext(options), b = await browser.newContext(options);
+  const p1 = await a.newPage(), p2 = await b.newPage();
+  try {
+    await p1.goto('/');
+    await expect(p1.locator('#connection')).toHaveText('Connected to server');
+    await p1.getByRole('button', { name: 'Fight a Friend', exact: true }).click();
+    await expect(p1.locator('#connection')).toHaveText('Waiting for opponent');
+    const oldCode = (await p1.locator('#room-code').textContent())!;
+    await p2.goto(`/?room=${oldCode}`);
+    await p2.getByRole('button', { name: 'Join room', exact: true }).click();
+    await expect(p1.locator('#connection')).toHaveText('Opponent connected');
+    await expect(p2.locator('#connection')).toHaveText('Opponent connected');
+    await expect(p1.locator('#connection')).toHaveText('Match in progress');
+    await p2.keyboard.down('a');
+    await expect.poll(() => x(p1, 1)).toBeLessThan(820);
+    await p2.keyboard.up('a');
+    await p2.reload();
+    await expect(p1.locator('#connection')).toHaveText('Opponent disconnected');
+    await expect(p2.locator('#connection')).toHaveText('Connected to server');
+    await expectLobby(p1);
+    await expectLobby(p2);
+    await expect.poll(async () => (await p1.request.get('http://127.0.0.1:3002/health').then(r => r.json())).rooms).toBe(0);
+    await p2.getByRole('button', { name: 'Join room', exact: true }).click();
+    await expect(p2.getByRole('alert')).toContainText('Room not found or closed');
+    await p2.getByRole('button', { name: 'Fight a Friend', exact: true }).click();
+    await expect(p2.locator('#connection')).toHaveText('Waiting for opponent');
+    const nextCode = (await p2.locator('#room-code').textContent())!;
+    expect(nextCode).not.toBe(oldCode);
+    await expect(p2.locator('#round-result')).toHaveText('Server decides all movement, hits and results.');
+    await expect(hp(p2, 0)).toHaveText('100');
+    await expect(hp(p2, 1)).toHaveText('100');
+    await p1.getByLabel('Room code', { exact: true }).fill(nextCode);
+    await p1.getByRole('button', { name: 'Join room', exact: true }).click();
+    await expect(p1.locator('#connection')).toHaveText('Match in progress');
+    await p1.evaluate(() => window.__SC_TEST__!.socket.disconnect());
+    await expect(p1.locator('#connection')).toHaveText('Connection lost');
+    await expect(p2.locator('#connection')).toHaveText('Opponent disconnected');
+    await expectLobby(p1);
+    await expectLobby(p2);
+    await p1.evaluate(() => window.__SC_TEST__!.socket.connect());
+    await expect(p1.locator('#connection')).toHaveText('Connected to server');
+    await expect(p1.getByRole('alert')).toBeHidden();
+    await expect.poll(async () => (await p1.request.get('http://127.0.0.1:3002/health').then(r => r.json())).rooms).toBe(0);
+  } finally { await Promise.allSettled([a.close(), b.close()]); }
+});
+
+test('copying an invite without the secure clipboard API selects a manual-copy fallback', async ({ page }) => {
+  await page.addInitScript(() => Object.defineProperty(navigator, 'clipboard', { value: undefined, configurable: true }));
+  const errors: string[] = [];
+  page.on('pageerror', error => errors.push(error.message));
+  await page.goto('/');
+  await page.getByRole('button', { name: 'Fight a Friend', exact: true }).click();
+  await expect(page.locator('#invite')).toBeVisible();
+  await page.getByRole('button', { name: 'Copy link', exact: true }).click();
+  await expect(page.locator('#copy-status')).toHaveText('Select and copy the link');
+  const selected = await page.locator('#invite-link').evaluate((node: HTMLInputElement) => node.selectionStart === 0 && node.selectionEnd === node.value.length);
+  expect(selected).toBe(true);
+  expect(errors).toEqual([]);
 });

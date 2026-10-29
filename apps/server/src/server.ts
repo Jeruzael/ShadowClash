@@ -19,7 +19,6 @@ interface Room {
   inputTicks: [number, number];
   created: number;
   activity: number;
-  ended: number | null;
 }
 const MESSAGES: Record<ErrorCode, string> = {
   ROOM_FULL: 'Room full. This fight already has two players.', ROOM_NOT_FOUND: 'Room not found or closed. Create a new fight.',
@@ -47,11 +46,13 @@ function validInput(value: unknown): value is InputIntent {
 
 export function createGameServer(options: ServerOptions = {}) {
   const rooms = new Map<string, Room>();
+  let scheduler: ReturnType<typeof setInterval> | null = null;
+  let closed = false;
   const origins = options.allowedOrigins ?? ['http://127.0.0.1:5173', 'http://localhost:5173'];
   const httpServer = createServer((request, response) => {
     response.setHeader('Content-Type', 'application/json');
     if (request.url === '/health' && request.method === 'GET') {
-      response.end(JSON.stringify({ ok: true, protocol: PROTOCOL_VERSION, rooms: rooms.size }));
+      response.end(JSON.stringify({ ok: true, protocol: PROTOCOL_VERSION, rooms: rooms.size, simulationRunning: scheduler !== null }));
     } else { response.statusCode = 404; response.end(JSON.stringify({ error: 'NOT_FOUND' })); }
   });
   const io = new Server<ClientToServerEvents, ServerToClientEvents, Record<string, never>, SocketData>(httpServer, {
@@ -79,6 +80,18 @@ export function createGameServer(options: ServerOptions = {}) {
       delete socket.data.seat;
     }
     rooms.delete(code);
+    if (rooms.size === 0 && scheduler !== null) { clearInterval(scheduler); scheduler = null; }
+  }
+  function closeRoom(room: Room, reason: GameState['endReason']) {
+    room.game.phase = 'ended';
+    room.game.endReason = reason;
+    for (const fighter of room.game.fighters) {
+      fighter.input = emptyInput(); fighter.punchQueued = false; fighter.jumpQueued = false;
+    }
+    // Exactly one final notification, followed by removal of every socket seat
+    // and room resource. The client retains the closure notice, not a dead match.
+    broadcast(room);
+    expire(room.code);
   }
   function detach(socket: GameSocket) {
     const { room: code, seat } = socket.data;
@@ -89,14 +102,7 @@ export function createGameServer(options: ServerOptions = {}) {
     delete socket.data.seat;
     if (!room || room.sockets[seat] !== socket.id) return;
     room.sockets[seat] = null;
-    room.game.phase = 'ended';
-    room.game.endReason = 'opponent_left';
-    room.ended = Date.now();
-    for (const fighter of room.game.fighters) {
-      fighter.input = emptyInput(); fighter.punchQueued = false; fighter.jumpQueued = false;
-    }
-    broadcast(room);
-    if (room.sockets.every(id => id === null)) expire(code);
+    closeRoom(room, 'opponent_left');
   }
   function assign(socket: GameSocket, room: Room, seat: Seat, ack: unknown) {
     room.sockets[seat] = socket.id;
@@ -125,8 +131,9 @@ export function createGameServer(options: ServerOptions = {}) {
       do { code = randomBytes(4).toString('hex').toUpperCase(); } while (rooms.has(code));
       const now = Date.now();
       const room: Room = { code, game: createGame(randomBytes(16).toString('hex')), sockets: [null, null],
-        sequences: [0, 0], inputTicks: [0, 0], created: now, activity: now, ended: null };
+        sequences: [0, 0], inputTicks: [0, 0], created: now, activity: now };
       rooms.set(code, room);
+      startScheduler();
       assign(socket, room, 0, ack);
     });
     socket.on('room:join', (payload: unknown, ack) => {
@@ -159,39 +166,39 @@ export function createGameServer(options: ServerOptions = {}) {
   let previous = performance.now();
   let accumulator = 0;
   const tickMs = 1000 / B.tickRate;
-  const scheduler = setInterval(() => {
-    const now = performance.now();
-    accumulator += Math.min(250, now - previous);
-    previous = now;
-    let steps = 0;
-    while (accumulator >= tickMs && steps < 5) {
-      accumulator -= tickMs;
-      steps++;
-      for (const room of rooms.values()) {
-        for (const seat of [0, 1] as const) {
-          if (room.game.tick - room.inputTicks[seat] > 30) applyInput(room.game, seat, emptyInput());
+  function startScheduler() {
+    if (scheduler !== null || closed) return;
+    previous = performance.now(); accumulator = 0;
+    scheduler = setInterval(() => {
+      const now = performance.now();
+      accumulator += Math.min(250, now - previous);
+      previous = now;
+      let steps = 0;
+      while (accumulator >= tickMs && steps < 5) {
+        accumulator -= tickMs;
+        steps++;
+        for (const room of rooms.values()) {
+          for (const seat of [0, 1] as const) {
+            if (room.game.tick - room.inputTicks[seat] > 30) applyInput(room.game, seat, emptyInput());
+          }
+          const before = room.game.phase;
+          stepGame(room.game);
+          if (room.game.tick % B.snapshotEveryTicks === 0 || room.game.phase !== before) broadcast(room);
         }
-        const before = room.game.phase;
-        stepGame(room.game);
-        if (room.game.tick % B.snapshotEveryTicks === 0 || room.game.phase !== before) broadcast(room);
       }
-    }
-    if (steps === 5) accumulator %= tickMs;
-    const wallTime = Date.now();
-    for (const room of rooms.values()) {
-      if (room.ended !== null && wallTime - room.ended > 30000) expire(room.code);
-      else if (room.game.phase !== 'ended' && (wallTime - room.activity > (options.roomIdleMs ?? 60000) || wallTime - room.created > 3600000)) {
-        room.game.phase = 'ended'; room.game.endReason = 'room_expired'; room.ended = wallTime;
-        broadcast(room);
-        expire(room.code);
+      if (steps === 5) accumulator %= tickMs;
+      const wallTime = Date.now();
+      for (const room of rooms.values()) {
+        if (wallTime - room.activity > (options.roomIdleMs ?? 60000) || wallTime - room.created > 3600000) {
+          closeRoom(room, 'room_expired');
+        }
       }
-    }
-  }, 4);
-  let closed = false;
+    }, 4);
+  }
   return { httpServer, io, close: () => new Promise<void>(resolve => {
     if (closed) { resolve(); return; }
     closed = true;
-    clearInterval(scheduler);
+    if (scheduler !== null) { clearInterval(scheduler); scheduler = null; }
     io.close(() => { rooms.clear(); resolve(); });
   }) };
 }

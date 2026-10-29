@@ -195,4 +195,51 @@ describe('real socket rooms', () => {
     expect(await fetch(`${url}/health`).then(r => r.json())).toMatchObject({ rooms: 0 });
     expect((await create(a)).ok).toBe(true);
   });
+
+  it('notifies once on closure, removes the room and adapter seats, and stops all snapshots', async () => {
+    const a = await connect(), b = await connect(), outsider = await connect();
+    const first = value(await create(a));
+    value(await join(b, first.roomCode));
+    await snapshot(a, s => s.phase === 'active');
+    const received: Snapshot[] = [];
+    a.on('snapshot', s => received.push(s));
+    const terminal = snapshot(a, s => s.phase === 'ended');
+    await new Promise<void>(resolve => b.emit('room:leave', () => resolve()));
+    expect((await terminal).endReason).toBe('opponent_left');
+    await new Promise(resolve => setTimeout(resolve, 200));
+    expect(received.filter(s => s.phase === 'ended')).toHaveLength(1);
+    expect(received[received.length - 1]?.phase).toBe('ended');
+    expect(await fetch(`${url}/health`).then(r => r.json())).toMatchObject({ rooms: 0, simulationRunning: false });
+    expect(server.io.sockets.adapter.rooms.has(first.roomCode)).toBe(false);
+    expect(await join(outsider, first.roomCode)).toMatchObject({ ok: false, error: { code: 'ROOM_NOT_FOUND' } });
+    expect(await send(a, { seq: 1, buttons: emptyInput() })).toMatchObject({ ok: false, error: { code: 'INVALID_SEAT' } });
+    const next = value(await create(a));
+    expect(next.matchId).not.toBe(first.matchId);
+    expect(await send(a, { seq: 1, buttons: emptyInput() })).toMatchObject({ ok: true });
+  });
+
+  it('reclaims a disconnected peer room immediately while another room keeps running', async () => {
+    const a = await connect(), b = await connect(), c = await connect();
+    const first = value(await create(a));
+    value(await join(b, first.roomCode));
+    const other = value(await create(c));
+    const terminal = snapshot(a, s => s.phase === 'ended');
+    b.disconnect();
+    await terminal;
+    expect(await fetch(`${url}/health`).then(r => r.json())).toMatchObject({ rooms: 1, simulationRunning: true });
+    expect(server.io.sockets.adapter.rooms.has(first.roomCode)).toBe(false);
+    const tick = (await snapshot(c)).tick;
+    expect((await snapshot(c, s => s.tick > tick)).matchId).toBe(other.matchId);
+    await new Promise<void>(resolve => c.emit('room:leave', () => resolve()));
+    expect(await fetch(`${url}/health`).then(r => r.json())).toMatchObject({ rooms: 0, simulationRunning: false });
+  });
+
+  it('does not retain an idle scheduler after the last waiting player leaves', async () => {
+    expect(await fetch(`${url}/health`).then(r => r.json())).toMatchObject({ rooms: 0, simulationRunning: false });
+    const a = await connect();
+    value(await create(a));
+    expect(await fetch(`${url}/health`).then(r => r.json())).toMatchObject({ rooms: 1, simulationRunning: true });
+    await new Promise<void>(resolve => a.emit('room:leave', () => resolve()));
+    expect(await fetch(`${url}/health`).then(r => r.json())).toMatchObject({ rooms: 0, simulationRunning: false });
+  });
 });

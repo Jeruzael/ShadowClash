@@ -1,5 +1,5 @@
 import Phaser from 'phaser';
-import { BALANCE as B, type Snapshot } from '@shadow-clash/shared';
+import { BALANCE as B, createGame, type Snapshot } from '@shadow-clash/shared';
 
 interface Visual {
   body: Phaser.GameObjects.Container;
@@ -13,6 +13,8 @@ export class FightScene extends Phaser.Scene {
   private visuals: Visual[] = [];
   private message!: Phaser.GameObjects.Text;
   private lastRound = 0;
+  private lastMatchId: string | null = null;
+  private readonly lobby = createGame('');
   constructor(
     private readonly state: () => Snapshot | null,
     private readonly capture: (event: KeyboardEvent, down: boolean) => void,
@@ -49,11 +51,11 @@ export class FightScene extends Phaser.Scene {
 
   update(_time: number, delta: number) {
     const state = this.state();
-    if (!state) { this.message?.setText('CREATE OR JOIN A PRIVATE FIGHT'); return; }
-    const snap = state.round !== this.lastRound || state.phase === 'countdown';
-    this.lastRound = state.round;
+    const snap = !state || state.matchId !== this.lastMatchId || state.round !== this.lastRound || state.phase === 'countdown';
+    this.lastRound = state?.round ?? 0;
+    this.lastMatchId = state?.matchId ?? null;
     const alpha = 1 - Math.exp(-Math.min(delta, 100) / 40);
-    for (const f of state.fighters) {
+    for (const f of (state ?? this.lobby).fighters) {
       const v = this.visuals[f.seat];
       if (!v) continue;
       v.body.x = snap ? f.x : Phaser.Math.Linear(v.body.x, f.x, alpha);
@@ -66,6 +68,7 @@ export class FightScene extends Phaser.Scene {
       v.shield.setVisible(f.mode === 'block'); v.shield.x = f.facing * 34;
       v.body.setAngle(f.mode === 'knockout' ? f.facing * 75 : 0);
     }
+    if (!state) { this.message?.setText('CREATE OR JOIN A PRIVATE FIGHT'); return; }
     this.message.setText(state.phase === 'active' ? '' : state.phase === 'waiting' ? 'WAITING FOR OPPONENT'
       : state.phase === 'countdown' ? String(Math.ceil(state.phaseTicks / B.tickRate))
       : state.phase === 'ended' ? 'FIGHT CLOSED'

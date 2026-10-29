@@ -1,8 +1,8 @@
 import Phaser from 'phaser';
 import { io, type Socket } from 'socket.io-client';
 import {
-  BALANCE as B, PROTOCOL_VERSION, emptyInput,
-  type ClientToServerEvents, type InputState, type Reply, type SeatAssignment,
+  BALANCE as B, PROTOCOL_VERSION, createGame, emptyInput,
+  type ClientToServerEvents, type GameState, type InputState, type Reply, type SeatAssignment,
   type ServerToClientEvents, type Snapshot,
 } from '@shadow-clash/shared';
 import { FightScene } from './scene.js';
@@ -41,6 +41,10 @@ let latest: Snapshot | null = null;
 let held = emptyInput();
 let seq = 0;
 let pending = false;
+let requestGeneration = 0;
+let connectedBefore = false;
+const lobbyState = createGame('');
+sessionStorage.removeItem('shadow-clash-seat');
 const history: Snapshot[] = [];
 // No test messages are trusted by the server. This observer is tree-shaken
 // entirely out of normal dev/production bundles.
@@ -56,23 +60,48 @@ function buttons() {
   el<HTMLButtonElement>('leave').disabled = !assignment || pending;
 }
 function error(message = '') { el('error').textContent = message; el('error').hidden = !message; }
+type ConnectionLabel = 'Connected to server' | 'Waiting for opponent' | 'Opponent connected' | 'Match in progress' | 'Opponent disconnected' | 'Connection lost';
+function connection(label: ConnectionLabel) { el('connection').textContent = label; }
+function renderHud(snapshot: GameState | null) {
+  const state = snapshot ?? lobbyState;
+  el('match-id').textContent = state.matchId || '—'; el('tick').textContent = String(state.tick);
+  el('round-number').textContent = String(state.round);
+  el('wins').textContent = `${state.roundWins[0]} – ${state.roundWins[1]}`;
+  for (const f of state.fighters) {
+    el(`hp-${f.seat}`).textContent = String(f.hp);
+    el(`guard-${f.seat}`).textContent = String(f.guard);
+    el<HTMLProgressElement>(`health-bar-${f.seat}`).value = f.hp;
+    el<HTMLProgressElement>(`guard-bar-${f.seat}`).value = f.guard;
+    const card = el(`fighter-${f.seat}`);
+    card.dataset.x = String(f.x); card.dataset.y = String(f.y); card.dataset.mode = f.mode;
+  }
+  el('round-result').textContent = state.result ? `Last result: ${roundResult(state)}` : 'Server decides all movement, hits and results.';
+}
+function roundResult(state: GameState) {
+  return state.result ? state.result.winner === 'draw' ? 'Draw · double KO' : `${state.result.winner === 0 ? 'White' : 'Black'} Ninja wins round ${state.result.round}` : '';
+}
 function sendHeld() {
   if (!socket.connected || !assignment || latest?.phase === 'ended') return;
   socket.emit('input', { seq: ++seq, buttons: { ...held } });
 }
 function release() { held = emptyInput(); sendHeld(); }
-function clearRoom() {
-  assignment = null; latest = null; held = emptyInput(); pending = false;
+function clearRoom(notice = 'Create or join a private fight', label: ConnectionLabel = socket.connected ? 'Connected to server' : 'Connection lost') {
+  requestGeneration++;
+  assignment = null; latest = null; held = emptyInput(); pending = false; seq = 0;
   sessionStorage.removeItem('shadow-clash-seat');
   el('your-seat').textContent = 'Choose a room to play'; el('room-code').textContent = '—';
   el('invite').hidden = true;
-  el('round-status').textContent = 'Create or join a private fight';
-  buttons();
+  el<HTMLInputElement>('invite-link').value = '';
+  el<HTMLInputElement>('join-code').value = '';
+  el('copy-status').textContent = '';
+  el('round-status').textContent = notice;
+  renderHud(null); connection(label); error(); buttons();
 }
 function accept(reply: Reply<SeatAssignment>) {
   pending = false;
   if (!reply.ok) { error(reply.error.message); buttons(); return; }
   assignment = reply.value; seq = 0; held = emptyInput(); history.length = 0;
+  latest = null; renderHud(null);
   sessionStorage.setItem('shadow-clash-seat', JSON.stringify(assignment));
   el('room-code').textContent = assignment.roomCode;
   el('your-seat').textContent = assignment.seat === 0 ? 'P1 · White Ninja' : 'P2 · Black Ninja';
@@ -84,7 +113,9 @@ function accept(reply: Reply<SeatAssignment>) {
 function request(code?: string) {
   if (pending || assignment || !socket.connected) return;
   pending = true; error(); buttons();
+  const generation = ++requestGeneration;
   const done = (err: Error | null, reply: Reply<SeatAssignment>) => {
+    if (generation !== requestGeneration) return;
     if (err) { pending = false; error('Request timed out. Reconnect before trying again.'); socket.disconnect(); socket.connect(); buttons(); }
     else accept(reply);
   };
@@ -95,45 +126,49 @@ el('create').addEventListener('click', () => request());
 el('join-form').addEventListener('submit', event => { event.preventDefault(); request(el<HTMLInputElement>('join-code').value.trim().toUpperCase()); });
 el('leave').addEventListener('click', () => {
   release(); pending = true; buttons();
+  const generation = ++requestGeneration;
   socket.timeout(4000).emit('room:leave', (err: Error | null) => {
+    if (generation !== requestGeneration) return;
     clearRoom();
     if (err) { socket.disconnect(); socket.connect(); error('Connection interrupted. The room was closed.'); }
   });
 });
 el('copy').addEventListener('click', () => {
   const input = el<HTMLInputElement>('invite-link');
-  void navigator.clipboard.writeText(input.value).then(() => { el('copy-status').textContent = 'Copied'; }, () => { input.select(); el('copy-status').textContent = 'Select and copy the link'; });
+  const link = input.value;
+  const fallback = () => {
+    if (!assignment || input.value !== link) return;
+    input.focus(); input.select(); el('copy-status').textContent = 'Select and copy the link';
+  };
+  if (typeof navigator.clipboard?.writeText !== 'function') { fallback(); return; }
+  void navigator.clipboard.writeText(link).then(() => { if (assignment && input.value === link) el('copy-status').textContent = 'Copied'; }, fallback);
 });
 el<HTMLInputElement>('join-code').value = new URLSearchParams(location.search).get('room')?.slice(0, 8).toUpperCase() ?? '';
 
-socket.on('connect', () => { el('connection').textContent = '● Connected'; buttons(); });
-socket.on('disconnect', () => { clearRoom(); el('connection').textContent = 'Disconnected · reconnecting…'; error('Connection lost. This M1 fight has ended; create or join a new room after reconnecting.'); });
-socket.on('connect_error', () => { el('connection').textContent = 'Server unavailable'; error('Could not connect. Check that the local server is running.'); buttons(); });
-socket.on('game:error', failure => error(failure.message));
+socket.on('connect', () => {
+  if (connectedBefore) clearRoom('Connection restored · Create or join a new fight.');
+  connectedBefore = true; connection('Connected to server'); error(); buttons();
+});
+socket.on('disconnect', () => { clearRoom('Connection lost · This fight has closed.', 'Connection lost'); error('Connection lost. Create or join a new room after reconnecting.'); });
+socket.on('connect_error', () => { clearRoom('Connection lost · Check the server.', 'Connection lost'); error('Could not connect. Check that the local server is running.'); });
+socket.on('game:error', failure => { if (failure.code !== 'INVALID_SEAT' || assignment) error(failure.message); });
 socket.on('snapshot', state => {
   if (!assignment || state.matchId !== assignment.matchId) return;
   if (state.protocol !== PROTOCOL_VERSION) { error('Protocol mismatch. Reload the client.'); return; }
-  latest = state;
   if (import.meta.env.MODE === 'test') { history.push(state); if (history.length > 1000) history.shift(); }
-  el('match-id').textContent = state.matchId; el('tick').textContent = String(state.tick);
-  el('round-number').textContent = String(state.round);
-  el('wins').textContent = `${state.roundWins[0]} – ${state.roundWins[1]}`;
-  for (const f of state.fighters) {
-    el(`hp-${f.seat}`).textContent = String(f.hp);
-    el(`guard-${f.seat}`).textContent = String(f.guard);
-    el<HTMLProgressElement>(`health-bar-${f.seat}`).value = f.hp;
-    el<HTMLProgressElement>(`guard-bar-${f.seat}`).value = f.guard;
-    const card = el(`fighter-${f.seat}`);
-    card.dataset.x = String(f.x); card.dataset.y = String(f.y); card.dataset.mode = f.mode;
+  if (state.phase === 'ended') {
+    const peerLeft = state.endReason === 'opponent_left';
+    clearRoom(peerLeft ? 'Opponent disconnected · Fight closed. Create or join a new room.' : 'Room expired · Create or join a new room.', peerLeft ? 'Opponent disconnected' : 'Connected to server');
+    return;
   }
-  const result = state.result ? state.result.winner === 'draw' ? 'Draw · double KO' : `${state.result.winner === 0 ? 'White' : 'Black'} Ninja wins round ${state.result.round}` : '';
+  latest = state; renderHud(state);
+  connection(state.phase === 'waiting' ? 'Waiting for opponent' : state.phase === 'countdown' ? 'Opponent connected' : 'Match in progress');
+  const result = roundResult(state);
   const status = state.phase === 'waiting' ? 'Waiting for opponent…'
     : state.phase === 'countdown' ? `Get ready · ${Math.ceil(state.phaseTicks / B.tickRate)}`
     : state.phase === 'active' ? 'Fight!'
-    : state.phase === 'round_end' ? `${result} · Next round soon`
-    : state.endReason === 'opponent_left' ? 'Opponent left · Fight closed. Leave to start another.' : 'Room expired · Leave to start another.';
+    : `${result} · Next round soon`;
   if (el('round-status').textContent !== status) el('round-status').textContent = status;
-  el('round-result').textContent = result ? `Last result: ${result}` : 'Server decides all movement, hits and results.';
 });
 
 const map: Record<string, keyof InputState> = { KeyA: 'left', KeyD: 'right', KeyW: 'jump', KeyJ: 'punch', KeyL: 'block' };
