@@ -2,6 +2,8 @@
 
 Date: 2026-10-29. Base: `1465e01`. Scope: isolated M4 asset preview only; live M0/M1.1 gameplay remains unchanged.
 
+Historical import report at 84px. For the subsequent selectable-size preview, current results and all-size screenshots, see [visual scale verification](WHITE-IDLE-SCALE-VERIFICATION.md).
+
 ## Implemented
 
 - Separate `/asset-preview.html` Vite entry, Phaser scene and preview UI. No Socket.IO client, live match or physics simulation in this page.
