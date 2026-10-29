@@ -1,0 +1,25 @@
+{
+  "name": "shadow-clash",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "workspaces": ["apps/*", "packages/*"],
+  "engines": { "node": ">=22.12.0 <23 || >=24.0.0 <25 || >=26.0.0 <27" },
+  "scripts": {
+    "dev": "npm run build -w @shadow-clash/shared && concurrently -k -n shared,server,client \"npm run dev -w @shadow-clash/shared\" \"node --env-file-if-exists=.env --import tsx --watch apps/server/src/index.ts\" \"npm run dev -w @shadow-clash/client\"",
+    "test": "vitest run",
+    "test:e2e": "playwright test",
+    "typecheck": "npm run build -w @shadow-clash/shared && tsc --noEmit -p apps/server && tsc --noEmit -p apps/client && tsc --noEmit -p tsconfig.tests.json",
+    "build": "npm run build -w @shadow-clash/shared && npm run build -w @shadow-clash/server && npm run build -w @shadow-clash/client",
+    "start": "node --env-file-if-exists=.env apps/server/dist/index.js",
+    "preview": "npm run preview -w @shadow-clash/client"
+  },
+  "devDependencies": {
+    "@playwright/test": "1.64.1",
+    "@types/node": "22.19.15",
+    "concurrently": "10.0.6",
+    "tsx": "4.23.15",
+    "typescript": "7.0.2",
+    "vitest": "5.0.5"
+  }
+}
